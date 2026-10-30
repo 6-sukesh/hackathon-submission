@@ -1,0 +1,13 @@
+{
+  "name": "music-seed",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "node seed.js",
+    "live": "node seed.js --live"
+  },
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "mongodb": "^6.10.0"
+  }
+}

@@ -1,0 +1,120 @@
+name: music-analytics
+
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: mongo
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports: ["27017:27017"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # initiates the single-node replica set on first boot (change streams need a replica set)
+      test: >
+        mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }"
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  # Kafka API. In-network clients use redpanda:9092, host clients localhost:19092.
+  redpanda:
+    image: redpandadata/redpanda:v24.2.18
+    container_name: redpanda
+    command:
+      - redpanda start
+      - --mode dev-container
+      - --smp 1
+      - --memory 1G
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+    ports: ["19092:19092", "19644:9644"]
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  # one-shot: creates events.plays, events.clicks, cdc.music (idempotent)
+  redpanda-init:
+    image: redpandadata/redpanda:v24.2.18
+    container_name: redpanda-init
+    entrypoint: ["bash", "/create-topics.sh"]
+    volumes:
+      - ./redpanda/create-topics.sh:/create-topics.sh:ro
+    depends_on:
+      redpanda: { condition: service_healthy }
+
+  redpanda-console:
+    image: redpandadata/console:v2.7.2
+    container_name: redpanda-console
+    ports: ["8080:8080"]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      REDPANDA_ADMINAPI_ENABLED: "true"
+      REDPANDA_ADMINAPI_URLS: http://redpanda:9644
+    depends_on:
+      redpanda: { condition: service_healthy }
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: clickhouse
+    ports: ["8123:8123", "9000:9000"]
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - ch-data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--password", "clickhouse", "-q", "SELECT 1"]
+      interval: 5s
+      retries: 30
+    depends_on:
+      # 02-kafka.sql subscribes to the topics
+      redpanda-init: { condition: service_completed_successfully }
+
+  flink-jobmanager:
+    image: flink:1.19.1-scala_2.12-java11
+    container_name: flink-jobmanager
+    command: jobmanager
+    ports: ["8081:8081"]
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        execution.checkpointing.interval: 10s
+        state.checkpoints.dir: file:///flink-state/checkpoints
+        state.savepoints.dir: file:///flink-state/savepoints
+    volumes:
+      - ./flink/usrlib:/opt/flink/usrlib
+      - ./flink/state:/flink-state
+    depends_on:
+      mongo: { condition: service_healthy }
+      redpanda-init: { condition: service_completed_successfully }
+
+  flink-taskmanager:
+    image: flink:1.19.1-scala_2.12-java11
+    container_name: flink-taskmanager
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 1600m
+        state.checkpoints.dir: file:///flink-state/checkpoints
+        state.savepoints.dir: file:///flink-state/savepoints
+    volumes:
+      - ./flink/usrlib:/opt/flink/usrlib
+      - ./flink/state:/flink-state
+    depends_on: [flink-jobmanager]
+
+volumes:
+  mongo-data:
+  ch-data:
+  redpanda-data:

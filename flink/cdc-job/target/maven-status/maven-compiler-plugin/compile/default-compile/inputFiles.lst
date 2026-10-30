@@ -1,0 +1,4 @@
+/build/src/main/java/ai/coschool/music/cdc/ChangeEventToRow.java
+/build/src/main/java/ai/coschool/music/cdc/EnvelopeSerializer.java
+/build/src/main/java/ai/coschool/music/cdc/ExtJson.java
+/build/src/main/java/ai/coschool/music/cdc/MongoCdcToKafkaJob.java

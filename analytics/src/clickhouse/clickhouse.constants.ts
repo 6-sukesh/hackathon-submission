@@ -1,0 +1,1 @@
+export const CLICKHOUSE_CLIENT = Symbol('CLICKHOUSE_CLIENT');

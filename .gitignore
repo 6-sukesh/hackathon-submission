@@ -1,0 +1,10 @@
+# secrets
+.env
+!.env.example
+
+# demo walkthrough
+DEMO.md
+scripts/demo/
+scripts/seed/node_modules/
+
+flink/state/

@@ -1,0 +1,4 @@
+ai/coschool/music/cdc/EnvelopeSerializer.class
+ai/coschool/music/cdc/MongoCdcToKafkaJob.class
+ai/coschool/music/cdc/ExtJson.class
+ai/coschool/music/cdc/ChangeEventToRow.class
